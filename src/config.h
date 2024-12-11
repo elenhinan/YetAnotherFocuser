@@ -8,8 +8,9 @@
 #define HOMING_SPEED        1.0f
 #define DEBUG
 
-// TMC2208
+// TMC2208/2209
 #define TMC_RS              0.11f   // Rs of Fysetc TMC2208 is 0.11 Ohm
+#define TMC_SERIAL          Serial2
 
 // Stepper settings
 #define STP_MICROSTEP      32   // Microsteps internally
@@ -27,7 +28,7 @@
 #define STP_STEPS_PER_MM   (200 * STP_MICROSTEP * STP_GEAR_RATIO / STP_MM_PER_REV)
 
 // WiFi config
-#define HOSTNAME             "astrofocuser"
+#define HOSTNAME             "astrofocus"
 #define TCP_PORT             3117
 #define ESP_DRD_USE_EEPROM   true
 #define DRD_TIMEOUT          3

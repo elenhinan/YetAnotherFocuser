@@ -6,12 +6,12 @@
   #define N_FOCUSERS 1
 #endif
 
-OneWire oneWire(PIN_DS1820);
+OneWire oneWire(PIN_ONEWIRE);
 DallasTemperature sensors(&oneWire);
 Focuser focuser[N_FOCUSERS] = {
-  Focuser(&STP1_SERIAL, STP1_RX, STP1_TX, STP1_STEP, STP1_DIR, STP1_EN, PIN_HOME1)
+  Focuser(&TMC_SERIAL, PIN_TMC_RXD, PIN_TMC_TXD, PIN_TMC1_STEP, PIN_TMC1_DIR, PIN_TMC1_EN, PIN_TMC1_DIAG)
 #ifdef FOCUSER2_ENABLE
-  ,Focuser(&STP2_SERIAL, STP2_RX, STP2_TX, STP2_STEP, STP2_DIR, STP2_EN, PIN_HOME2)
+  ,Focuser(&TMC_SERIAL, PIN_TMC_RXD, PIN_TMC_TXD, PIN_TMC2_STEP, PIN_TMC2_DIR, PIN_TMC2_EN, PIN_TMC2_DIAG)
 #endif
 };
 WiFiServer tcpServer(TCP_PORT);
@@ -43,6 +43,7 @@ void loop() {
   update_encoder();
   update_sensors();
   update_focus();
+  ArduinoOTA.handle();
   delay(50); 
 }
 
@@ -84,6 +85,37 @@ void setup_wifi()
   }
 }
 
+void setup_ota()
+{
+  ArduinoOTA
+    .onStart([]() {
+      String type;
+      if (ArduinoOTA.getCommand() == U_FLASH)
+        type = "sketch";
+      else // U_SPIFFS
+        type = "filesystem";
+
+      // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+      Serial.println("Start updating " + type);
+    })
+    .onEnd([]() {
+      Serial.println("\nEnd");
+    })
+    .onProgress([](unsigned int progress, unsigned int total) {
+      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    })
+    .onError([](ota_error_t error) {
+      Serial.printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+      else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+
+  ArduinoOTA.begin();
+}
+
 void setup_encoder()
 {
   pinMode(PIN_ENC_A, INPUT_PULLUP);
@@ -97,8 +129,22 @@ void setup_encoder()
 void setup_sensors()
 {
   sensors.begin();
-
-  if (sensors.getAddress(temp_address, 0)) {
+  // find sensors
+  n_sensors = sensors.getDS18Count();
+  temp_address = new DeviceAddress[n_sensors]; // allocate array
+  sprintf(buffer,"Found %d temperature sensor(s)", n_sensors);
+  Serial.println(buffer);
+  for(int i=0;i<n_sensors;i++) {
+    sensors.getAddress(temp_address[i], i);
+    Serial.println("test");
+    for(int j=0;j<8;j++)
+      Serial.print(temp_address[i][j],HEX);
+    //sprintf(buffer, " [%d] 0x%016X",i,*((uint64_t*)temp_address[i]));
+    //Serial.println(buffer);
+  }
+  
+  if (n_sensors > 0) {
+    Serial.println("setting up sensors");
     sensors.setResolution(12);
     sensors.setWaitForConversion(false);
     sensors.setCheckForConversion(true);
@@ -108,7 +154,7 @@ void setup_sensors()
 void update_encoder()
 {
   if(enc_counter) {
-    uint8_t fIndex = digitalRead(PIN_ENC_SEL);
+    uint8_t fIndex = 0;//digitalRead(PIN_ENC_SEL);
     focuser[fIndex].move(enc_counter);
     enc_counter = 0;
   }
@@ -117,15 +163,24 @@ void update_encoder()
 void update_sensors()
 {
   if(sensors.isConversionComplete()) {
-    temperature = sensors.getTempC(temp_address);
-    focuser[0].setTemperature(temperature);
+    //Serial.println("reading sensors");
+    float temperature;
+    for(int i=0; i<n_sensors; i++) {
+      temperature = sensors.getTempC(temp_address[i]);
+      if(i<N_FOCUSERS)
+        focuser[i].setTemperature(temperature);
+    }
     sensors.requestTemperatures();
+  } else {
+    //Serial.println("Sensor not ready");
   }
 }
 
 void update_focus()
 {
-  focuser[0].update();
+  for(int i=0;i<N_FOCUSERS;i++) {
+    focuser[i].update();
+  }
 }
 
 // Interrupts
